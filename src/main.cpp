@@ -10,12 +10,9 @@
 #define PI 3.14159265358979323846
 Adafruit_SSD1306 display_handler(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-const unsigned long interval = 40; 
-
+const unsigned long sample_time_ms = 40; 
 
 #define READ_PIN B1
-
-
 
 void setup() {
   pinMode(READ_PIN, INPUT);
@@ -37,26 +34,30 @@ void setup() {
 
 }
 
-
-
+// CHATGPT cooked here
+// Seems good to me, but I haven't looked in too much detail - F
 void generateSineWave(int num_samples, double frequency, double total_time_ms, std::vector<double>& sine_wave) {
     double amplitude = 1.0; // Amplitude of the sine wave
     double phase = 0.0; // Phase shift in radians
     double total_time_s = total_time_ms / 1000.0; // Convert milliseconds to seconds
-    double sample_rate = num_samples / total_time_s; // Sample rate in Hz
+    double sample_rate = (double) num_samples / total_time_s; // Sample rate in Hz
 
     sine_wave.resize(num_samples); // Resize the vector to hold the required number of samples
 
     for (int i = 0; i < num_samples; i++) {
-        double t = (double)i / sample_rate; // Time at this sample in seconds
-        double value = amplitude * sin(2.0 * PI * frequency * t + phase);
-        sine_wave[i] = value;
+      double t = (double)i / sample_rate; // Time at this sample in seconds
+      double value = amplitude * sin(2.0 * PI * frequency * t + phase);
+      sine_wave[i] = value;
     }
 }
 
 double convolution(int frequency, int sample_number, double* signal) { 
-  std::vector<double> reference_wave(sample_number * 2); // Changed to std::vector<double> to avoid potential issues with large arrays on the stack
-  generateSineWave(sample_number * 2, frequency, interval * 2, reference_wave);
+  
+  // The reference wave will have twice the lengh of the signal. Thus allowing us to test
+  // every possible offset value. This gives us the highest chance of finding the point
+  // where the two waves are perfectly in phase, but is probably overkill.
+  std::vector<double> reference_wave(sample_number * 2);
+  generateSineWave(sample_number * 2, frequency, sample_time_ms * 2, reference_wave);
     
   double values_per_offset[sample_number];
   for(int offset = 0; offset < sample_number; offset++) {
@@ -76,26 +77,34 @@ double convolution(int frequency, int sample_number, double* signal) {
   return maxValue;
 }
 
-
 void loop() {
+  
+  // Signal Array. Assumes we won't be taking more then 500 samples
+  // Switching to a vector might be more memory efficient - F
   static double signal[500];
-  unsigned long start_time = millis(); // Store the start time
-  int sample_number = 0;
-  while(millis() - start_time < interval) {
-    signal[sample_number] = analogRead(READ_PIN);
-    sample_number++;
+
+
+  // Sampling for the given time frame
+  int num_samples = 0;
+  unsigned long start_time = millis();
+  while(millis() - start_time < sample_time_ms) {
+    signal[num_samples] = analogRead(READ_PIN);
+    num_samples++;
+
+    // Introducing a delay here may make our sample time more consistant
+    // Since we are sampling many periods, the consistancy of our sample rate is more important
+    // than sampling speed.
     delayMicroseconds(500);
   }
 
-
-  double convolution_1000Hz = convolution(1000, sample_number, signal);
+  double convolution_1000Hz = convolution(1000, num_samples, signal);
   
-
   display_handler.clearDisplay();
   display_handler.setCursor(0,0);
   display_handler.print(convolution_1000Hz);
   display_handler.display();
-  sample_number = 0;
+  num_samples = 0;
 
+  // delay for a bit here so that the display is readable
   delay(100);
 }
